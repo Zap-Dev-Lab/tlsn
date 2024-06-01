@@ -8,15 +8,18 @@ use tlsn_verifier::tls::{Verifier, VerifierConfig};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::instrument;
+use std::{env, ops::Range, str};
 
 const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "notary.pse.dev";
+const SERVER_DOMAIN: &str = "twitter.com";
+const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
+const ROUTE: &str = "i/api/1.1/dm/conversation";
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let uri = "https://notary.pse.dev/info";
+    let uri = "https://twitter.com";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
@@ -42,6 +45,14 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     uri: &str,
     id: &str,
 ) {
+
+    // Load secret variables frome environment for twitter server connection
+    dotenv::dotenv().ok();
+    let conversation_id = env::var("CONVERSATION_ID").unwrap();
+    let auth_token = env::var("AUTH_TOKEN").unwrap();
+    let access_token = env::var("ACCESS_TOKEN").unwrap();
+    let csrf_token = env::var("CSRF_TOKEN").unwrap();
+
     let uri = uri.parse::<Uri>().unwrap();
     assert_eq!(uri.scheme().unwrap().as_str(), "https");
     let server_domain = uri.authority().unwrap().host();
@@ -92,13 +103,25 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let us see the decrypted data until after the connection is closed.
     ctrl.defer_decryption().await.unwrap();
 
-    // MPC-TLS: Send Request and wait for Response.
+    // Build the HTTP request to fetch the DMs
     let request = Request::builder()
-        .uri(uri.clone())
-        .header("Host", server_domain)
+        .uri(format!(
+            "https://{SERVER_DOMAIN}/{ROUTE}/{conversation_id}.json"
+        ))
+        .header("Host", SERVER_DOMAIN)
+        .header("Accept", "*/*")
+        .header("Accept-Encoding", "identity")
         .header("Connection", "close")
-        .header("Secret", SECRET)
-        .method("GET")
+        .header("User-Agent", USER_AGENT)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header(
+            "Cookie",
+            format!("auth_token={auth_token}; ct0={csrf_token}"),
+        )
+        .header("Authority", SERVER_DOMAIN)
+        .header("X-Twitter-Auth-Type", "OAuth2Session")
+        .header("x-twitter-active-user", "yes")
+        .header("X-Csrf-Token", csrf_token.clone())
         .body(Empty::<Bytes>::new())
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();
@@ -113,6 +136,7 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 
     // Finalize.
     prover.finalize().await.unwrap()
+    
 }
 
 #[instrument(skip(socket))]
@@ -136,10 +160,11 @@ async fn verifier<T: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static>(
     // Check received data: check json and version number.
     let response =
         String::from_utf8(received.data().to_vec()).expect("Verifier expected received data");
-    response
-        .find("BEGIN PUBLIC KEY")
-        .expect("Expected valid public key in JSON response");
+    // response
+    //     .find("BEGIN PUBLIC KEY")
+    //     .expect("Expected valid public key in JSON response");
 
+    // println!("{:#?}", session_info.server_name.as_str.unwrap_or("None"));
     // Check Session info: server name.
     assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
 
@@ -151,31 +176,29 @@ fn redact_and_reveal_received_data(prover: &mut Prover<Prove>) {
     let recv_transcript_len = prover.recv_transcript().data().len();
 
     // Get the commit hash from the received data.
-    let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
-    let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
-    let commit_hash_match = re.captures(&received_string).unwrap().get(1).unwrap();
+    // let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
+    // let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
+    // let commit_hash_match = re.captures(&received_string).unwrap().get(0).unwrap();
 
-    // Reveal everything except for the commit hash.
-    _ = prover.reveal(0..commit_hash_match.start(), Direction::Received);
-    _ = prover.reveal(
-        commit_hash_match.end()..recv_transcript_len,
-        Direction::Received,
-    );
+    // // Reveal everything except for the commit hash.
+    // _ = prover.reveal(0..commit_hash_match.start(), Direction::Received);
+    _ = prover.reveal(0..recv_transcript_len, Direction::Received);
+
 }
 
 /// Redacts and reveals sent data to the verifier.
 fn redact_and_reveal_sent_data(prover: &mut Prover<Prove>) {
     let sent_transcript_len = prover.sent_transcript().data().len();
 
-    let sent_string = String::from_utf8(prover.sent_transcript().data().to_vec()).unwrap();
-    let secret_start = sent_string.find(SECRET).unwrap();
+    // let sent_string = String::from_utf8(prover.sent_transcript().data().to_vec()).unwrap();
+    // let secret_start = sent_string.find(SECRET).unwrap();
 
     // Reveal everything except for the SECRET.
-    _ = prover.reveal(0..secret_start, Direction::Sent);
-    _ = prover.reveal(
-        secret_start + SECRET.len()..sent_transcript_len,
-        Direction::Sent,
-    );
+    _ = prover.reveal(0..sent_transcript_len, Direction::Sent);
+    // _ = prover.reveal(
+    //     secret_start + SECRET.len()..sent_transcript_len,
+    //     Direction::Sent,
+    // );
 }
 
 /// Render redacted bytes as `🙈`.

@@ -5,6 +5,8 @@ publish = false
 version = "0.0.0"
 
 [dependencies]
+env_logger = "0.9"
+
 mpz-core.workspace = true
 notary-server = {path = "../../notary-server"}
 tlsn-core.workspace = true
@@ -16,6 +18,7 @@ tlsn-verifier.workspace = true
 
 elliptic-curve = {version = "0.13.5", features = ["pkcs8"]}
 p256 = {workspace = true, features = ["ecdsa"]}
+reqwest = { version = "0.11", features = ["json"] }
 webpki-roots.workspace = true
 
 async-tls = {version = "0.12", default-features = false, features = [
@@ -26,6 +29,7 @@ futures.workspace = true
 http-body-util = "0.1"
 hyper = {version = "1.1", features = ["client", "http1"]}
 hyper-util = {version = "0.1", features = ["full"]}
+hyper-tls = "0.5.0"
 rustls = {version = "0.21"}
 rustls-pemfile = {version = "1.0.2"}
 tokio = {workspace = true, features = [
@@ -45,6 +49,10 @@ serde = {version = "1.0.147", features = ["derive"]}
 serde_json = "1.0"
 tracing-subscriber.workspace = true
 tracing.workspace = true
+http = "0.2"
+ureq = "2.6.2"
+
+
 
 regex = "1.10.3"
 
@@ -55,6 +63,10 @@ path = "simple/simple_prover.rs"
 [[example]]
 name = "simple_verifier"
 path = "simple/simple_verifier.rs"
+
+[[example]]
+name = "simple_verifier2"
+path = "simple/simple_verifier2.rs"
 
 [[example]]
 name = "twitter_dm"
@@ -71,3 +83,36 @@ path = "discord/discord_dm_verifier.rs"
 [[example]]
 name = "interactive"
 path = "interactive/interactive.rs"
+
+[[example]]
+name = "interactive_simple"
+path = "interactive/interactive_simple.rs"
+
+[[example]]
+name = "interactive_discord"
+path = "interactive/interactive_discord.rs"
+
+[[example]]
+name = "interactive_twitter"
+path = "interactive/interactive_twitter.rs"
+
+
+[[example]]
+name = "interactive_starkling"
+path = "interactive/interactive_starkling.rs"
+
+[[example]]
+name = "request_test"
+path = "interactive/request_test.rs"
+
+[[example]]
+name = "request_test_hyper"
+path = "interactive/request_test_hyper.rs"
+
+[[example]]
+name = "request_test_ureq"
+path = "interactive/request_test_ureq.rs"
+
+[[example]]
+name = "interactive_node_guardians"
+path = "interactive/interactive_node_guardians.rs"

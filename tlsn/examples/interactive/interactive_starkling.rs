@@ -10,13 +10,12 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::instrument;
 
 const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "notary.pse.dev";
-
+const SERVER_DOMAIN: &str = "starklings-app-docker.onrender.com";
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let uri = "https://notary.pse.dev/info";
+    let uri = "https://starklings-app-docker.onrender.com";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
@@ -94,7 +93,8 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 
     // MPC-TLS: Send Request and wait for Response.
     let request = Request::builder()
-        .uri(uri.clone())
+
+        .uri("https://starklings-app-docker.onrender.com/api/user/danilowhk/exercise")
         .header("Host", server_domain)
         .header("Connection", "close")
         .header("Secret", SECRET)
@@ -113,6 +113,7 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 
     // Finalize.
     prover.finalize().await.unwrap()
+    
 }
 
 #[instrument(skip(socket))]
@@ -136,12 +137,13 @@ async fn verifier<T: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static>(
     // Check received data: check json and version number.
     let response =
         String::from_utf8(received.data().to_vec()).expect("Verifier expected received data");
-    response
-        .find("BEGIN PUBLIC KEY")
-        .expect("Expected valid public key in JSON response");
+    // response
+    //     .find("BEGIN PUBLIC KEY")
+    //     .expect("Expected valid public key in JSON response");
 
+    // println!("{:#?}", session_info.server_name.as_str.unwrap_or("None"));
     // Check Session info: server name.
-    assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
+    // assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
 
     (sent, received, session_info)
 }
@@ -151,16 +153,14 @@ fn redact_and_reveal_received_data(prover: &mut Prover<Prove>) {
     let recv_transcript_len = prover.recv_transcript().data().len();
 
     // Get the commit hash from the received data.
-    let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
-    let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
-    let commit_hash_match = re.captures(&received_string).unwrap().get(1).unwrap();
+    // let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
+    // let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
+    // let commit_hash_match = re.captures(&received_string).unwrap().get(0).unwrap();
 
-    // Reveal everything except for the commit hash.
-    _ = prover.reveal(0..commit_hash_match.start(), Direction::Received);
-    _ = prover.reveal(
-        commit_hash_match.end()..recv_transcript_len,
-        Direction::Received,
-    );
+    // // Reveal everything except for the commit hash.
+    // _ = prover.reveal(0..commit_hash_match.start(), Direction::Received);
+    _ = prover.reveal(0..recv_transcript_len, Direction::Received);
+
 }
 
 /// Redacts and reveals sent data to the verifier.

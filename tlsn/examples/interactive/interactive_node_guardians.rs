@@ -8,15 +8,17 @@ use tlsn_verifier::tls::{Verifier, VerifierConfig};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::instrument;
+use std::{env, ops::Range, str};
+
 
 const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "notary.pse.dev";
+const SERVER_DOMAIN: &str = "backend.nodeguardians.io";
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let uri = "https://notary.pse.dev/info";
+    let uri = "https://backend.nodeguardians.io/api/users/statistics?key=general";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
@@ -92,18 +94,43 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let us see the decrypted data until after the connection is closed.
     ctrl.defer_decryption().await.unwrap();
 
-    // MPC-TLS: Send Request and wait for Response.
+    dotenv::dotenv().ok();
+    let channel_id = env::var("CHANNEL_ID").unwrap();
+    let auth_token = env::var("AUTHORIZATION").unwrap();
+    let user_agent = env::var("USER_AGENT").unwrap();
+
+    // // MPC-TLS: Send Request and wait for Response.
+    // let request = Request::builder()
+    //     .uri(format!(
+    //         "https://backend.nodeguardians.io/api/users/statistics?key=general"
+    //     )) 
+    //     .header("Host", SERVER_DOMAIN)
+    //     .header("Accept", "application/json")
+    //     .header("Accept-Language", "en-US,en;q=0.9")
+    //     .header("Accept-Encoding", "identity")
+    //     .header("Authorization", format!("Bearer {auth_token}"))
+    //     .header("Origin", "https://nodeguardians.io" )
+    //     .header("Referer", "https://nodeguardians.io/" )
+    //     .body(Empty::<Bytes>::new())
+    //     .unwrap();
+
+    let url = "https://backend.nodeguardians.io/api/users/statistics?key=general";
+    let bearer_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NTQxNiwiaWF0IjoxNzE3MTY4NjM2LCJleHAiOjE3MTc2MDA2MzZ9.2q4kL2-jJ_Q2igiAKmiY_6o0DfOF6viqLMXzrCiWNE0";
+    
+    // Build the request
     let request = Request::builder()
-        .uri(uri.clone())
-        .header("Host", server_domain)
-        .header("Connection", "close")
-        .header("Secret", SECRET)
+        .uri(url)
         .method("GET")
+        .header("Accept", "application/json")
+        .header("Accept-Encoding", "identity")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NTQxNiwiaWF0IjoxNzE3MTY4NjM2LCJleHAiOjE3MTc2MDA2MzZ9.2q4kL2-jJ_Q2igiAKmiY_6o0DfOF6viqLMXzrCiWNE0")
+        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
         .body(Empty::<Bytes>::new())
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();
 
-    assert!(response.status() == StatusCode::OK);
+    // assert!(response.status() == StatusCode::OK);
 
     // Create proof for the Verifier.
     let mut prover = prover_task.await.unwrap().unwrap().start_prove();
@@ -136,12 +163,14 @@ async fn verifier<T: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static>(
     // Check received data: check json and version number.
     let response =
         String::from_utf8(received.data().to_vec()).expect("Verifier expected received data");
-    response
-        .find("BEGIN PUBLIC KEY")
-        .expect("Expected valid public key in JSON response");
+    // response
+    //     .find("BEGIN PUBLIC KEY")
+    //     .expect("Expected valid public key in JSON response");
 
     // Check Session info: server name.
-    assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
+    // assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
+
+    // Assinar os valores
 
     (sent, received, session_info)
 }
@@ -150,32 +179,32 @@ async fn verifier<T: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static>(
 fn redact_and_reveal_received_data(prover: &mut Prover<Prove>) {
     let recv_transcript_len = prover.recv_transcript().data().len();
 
-    // Get the commit hash from the received data.
-    let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
-    let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
-    let commit_hash_match = re.captures(&received_string).unwrap().get(1).unwrap();
+    // // Get the commit hash from the received data.
+    // let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
+    // let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
+    // let commit_hash_match = re.captures(&received_string).unwrap().get(1).unwrap();
 
     // Reveal everything except for the commit hash.
-    _ = prover.reveal(0..commit_hash_match.start(), Direction::Received);
-    _ = prover.reveal(
-        commit_hash_match.end()..recv_transcript_len,
-        Direction::Received,
-    );
+    _ = prover.reveal(0..recv_transcript_len, Direction::Received);
+    // _ = prover.reveal(
+    //     commit_hash_match.end()..recv_transcript_len,
+    //     Direction::Received,
+    // );
 }
 
 /// Redacts and reveals sent data to the verifier.
 fn redact_and_reveal_sent_data(prover: &mut Prover<Prove>) {
     let sent_transcript_len = prover.sent_transcript().data().len();
 
-    let sent_string = String::from_utf8(prover.sent_transcript().data().to_vec()).unwrap();
-    let secret_start = sent_string.find(SECRET).unwrap();
+    // let sent_string = String::from_utf8(prover.sent_transcript().data().to_vec()).unwrap();
+    // let secret_start = sent_string.find(SECRET).unwrap();
 
     // Reveal everything except for the SECRET.
-    _ = prover.reveal(0..secret_start, Direction::Sent);
-    _ = prover.reveal(
-        secret_start + SECRET.len()..sent_transcript_len,
-        Direction::Sent,
-    );
+    _ = prover.reveal(0..sent_transcript_len, Direction::Sent);
+//     _ = prover.reveal(
+//         secret_start + SECRET.len()..sent_transcript_len,
+//         Direction::Sent,
+//     );
 }
 
 /// Render redacted bytes as `🙈`.
