@@ -44,8 +44,13 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 ) {
     let uri = uri.parse::<Uri>().unwrap();
     assert_eq!(uri.scheme().unwrap().as_str(), "https");
+    let host = uri.host().expect("uri has no host");
     let server_domain = uri.authority().unwrap().host();
     let server_port = uri.port_u16().unwrap_or(443);
+
+    println!("Connecting to {}", &uri);
+    println!("Server domain: {}", &server_domain);
+    println!("Server host: {}", &host);
 
     // Create prover and connect to verifier.
     //
