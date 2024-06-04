@@ -96,6 +96,10 @@ path = "interactive/interactive_discord.rs"
 name = "interactive_twitter"
 path = "interactive/interactive_twitter.rs"
 
+[[example]]
+name = "interactive_google"
+path = "interactive/interactive_google.rs"
+
 
 [[example]]
 name = "interactive_starkling"

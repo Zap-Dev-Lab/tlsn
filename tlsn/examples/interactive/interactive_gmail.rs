@@ -20,7 +20,7 @@ const SERVER_DOMAIN: &str = "backend.nodeguardians.io";
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let uri = "https://backend.nodeguardians.io/api/users/statistics?key=general";
+    let uri = "http://backend.nodeguardians.io/api/users/statistics?key=general";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
@@ -116,7 +116,7 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     //     .body(Empty::<Bytes>::new())
     //     .unwrap();
 
-    let url = "https://backend.nodeguardians.io/api/users/statistics?key=general";
+    let url = "http://backend.nodeguardians.io/api/users/statistics?key=general";
     // let bearer_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ODA5NSwiaWF0IjoxNzE3NDI4NDI2LCJleHAiOjE3MTc4NjA0MjZ9.Qp-HfWEbFoRdU_59RXwvHOEy3oNMPG03Jo42eNgNK-U";
     
     // Build the request
@@ -124,11 +124,10 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
         .uri(url)
         .method("GET")
         .header("Accept", "application/json")
-        // .header("Content-Type", "application/json")
-        // .header("Accept-Encoding", "gzip, deflate, br, zstd")
-        // .header("Accept-Language", "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7")
+        .header("Accept-Encoding", "gzip, deflate, br, zstd")
+        .header("Accept-Language", "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7")
         .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ODA5NSwiaWF0IjoxNzE3NDI4NDI2LCJleHAiOjE3MTc4NjA0MjZ9.Qp-HfWEbFoRdU_59RXwvHOEy3oNMPG03Jo42eNgNK-U")
-        // .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15")
+        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15")
         .body(Empty::<Bytes>::new())
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();

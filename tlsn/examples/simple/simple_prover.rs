@@ -24,7 +24,7 @@ async fn main() {
 
     let (prover_socket, notary_socket) = tokio::io::duplex(1 << 16);
 
-    // Start a local simple notary service
+    // Start a local simple notary service  
     tokio::spawn(run_notary(notary_socket.compat()));
 
     // A Prover configuration
