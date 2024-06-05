@@ -51,6 +51,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 http = "0.2"
 ureq = "2.6.2"
+url = "2.2"
 
 
 
@@ -67,6 +68,10 @@ path = "simple/simple_verifier.rs"
 [[example]]
 name = "simple_verifier2"
 path = "simple/simple_verifier2.rs"
+
+[[example]]
+name = "server"
+path = "server/server.rs"
 
 [[example]]
 name = "twitter_dm"
@@ -99,7 +104,6 @@ path = "interactive/interactive_twitter.rs"
 [[example]]
 name = "interactive_google"
 path = "interactive/interactive_google.rs"
-
 
 [[example]]
 name = "interactive_starkling"
