@@ -74,6 +74,10 @@ name = "server"
 path = "server/server.rs"
 
 [[example]]
+name = "server_google"
+path = "server/server_google.rs"
+
+[[example]]
 name = "twitter_dm"
 path = "twitter/twitter_dm.rs"
 

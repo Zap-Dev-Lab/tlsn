@@ -16,13 +16,11 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::instrument;
 
 use regex::Regex;
-use std::{env, ops::Range, str};
-// use url::Url;
+use std::{clone, str};
+use url::Url;
 
 const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "twitter.com";
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
-const ROUTE: &str = "i/api/1.1/dm/conversation";
+const SERVER_DOMAIN: &str = "oauth2.googleapis.com";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -53,33 +51,27 @@ async fn handle_request(
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     match (req.method(), req.uri().path()) {
         // Serve some instructions at /
-        (&Method::GET, "/") => Ok(Response::new(full(
-            "try",
-        ))),
-        // (&Method::GET, "/") => {
-        //     let query = req.uri().query().unwrap_or("");
-        //     let parsed_query = Url::    parse(&format!("http://localhost:8000/?{}", query)).unwrap();
-        //     let code = parsed_query.query_pairs().find(|(key, _)| key == "code");
+        (&Method::GET, "/") => {
+            let query = req.uri().query().unwrap_or("");
+            let parsed_query = Url::parse(&format!("http://localhost:8000/?{}", query)).unwrap();
+            let code = parsed_query.query_pairs().find(|(key, _)| key == "code");
 
-        //     match code {
-        //         Some((_, value)) => {
-        //             let response_body = format!("Authorization Code: {}", value);
-        //             println!("{}", response_body);
-        //             Ok(Response::new(full(response_body)))
-        //         }
-        //         None => {
-        //             let response_body = "Error: No authorization code received.";
-        //             let mut resp = Response::new(full(response_body));
-        //             *resp.status_mut() = StatusCode::BAD_REQUEST;
-        //             Ok(resp)
-        //         }
-        //     }
-        // }
-
-        (&Method::POST, "/") => {
-            tokio::task::spawn(service());
-            Ok(Response::new(full("Service function executed")))
-        },
+            match code {
+                Some((_, value)) => {
+                    let value_owned = value.to_string();
+                    let response_body = format!("Authorization Code: {}", value);
+                    println!("{}", response_body);
+                    tokio::task::spawn(service(value_owned));
+                    Ok(Response::new(full(response_body)))
+                }
+                None => {
+                    let response_body = "Error: No authorization code received.";
+                    let mut resp = Response::new(full(response_body));
+                    *resp.status_mut() = StatusCode::BAD_REQUEST;
+                    Ok(resp)
+                }
+            }
+        }
 
         // Return the 404 Not Found for other routes.
         _ => {
@@ -102,13 +94,13 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
         .boxed()
 }
 
-async fn service() {
-    let uri = "https://twitter.com";
+async fn service(access_code: String) {
+    let uri = "https://oauth2.googleapis.com/token";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
     let (prover_socket, verifier_socket) = tokio::io::duplex(1 << 23);
-    let prover = prover(prover_socket, uri, id);
+    let prover = prover(prover_socket, uri, id, access_code);
     let verifier = verifier(verifier_socket, id);
     let (_, (sent, received, _session_info)) = tokio::join!(prover, verifier);
 
@@ -128,15 +120,8 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     verifier_socket: T,
     uri: &str,
     id: &str,
+    access_code: String,
 ) {
-
-    dotenv::dotenv().ok();
-    
-    let conversation_id = env::var("CONVERSATION_ID").unwrap();
-    let auth_token = env::var("AUTH_TOKEN").unwrap();
-    let access_token = env::var("ACCESS_TOKEN").unwrap();
-    let csrf_token = env::var("CSRF_TOKEN").unwrap();
-
     let uri = uri.parse::<Uri>().unwrap();
     assert_eq!(uri.scheme().unwrap().as_str(), "https");
     let host = uri.host().expect("uri has no host");
@@ -192,25 +177,20 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let us see the decrypted data until after the connection is closed.
     ctrl.defer_decryption().await.unwrap();
 
+    let url = "https://oauth2.googleapis.com/token";
+
     // MPC-TLS: Send Request and wait for Response.
     let request = Request::builder()
-        .uri(format!(
-            "https://{SERVER_DOMAIN}/{ROUTE}/{conversation_id}.json"
-        ))
-        .header("Host", SERVER_DOMAIN)
-        .header("Accept", "*/*")
-        .header("Accept-Encoding", "identity")
-        .header("Connection", "close")
-        .header("User-Agent", USER_AGENT)
-        .header("Authorization", format!("Bearer {access_token}"))
-        .header(
-            "Cookie",
-            format!("auth_token={auth_token}; ct0={csrf_token}"),
-        )
-        .header("Authority", SERVER_DOMAIN)
-        .header("X-Twitter-Auth-Type", "OAuth2Session")
-        .header("x-twitter-active-user", "yes")
-        .header("X-Csrf-Token", csrf_token.clone())
+        .uri(url)
+        .method("POST")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Content-Length", "1600")
+        .header("connection", "closed")
+        .header("code", access_code)
+        .header("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
+        .header("client_secret", "GOCSPX-oLnxDDfp5oOoJ0sz5eIfKid_WIo")
+        .header("redirect_uri", "http://localhost:8000")
+        .header("grant_type", "authorization_code")
         .body(Empty::<Bytes>::new())
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();
