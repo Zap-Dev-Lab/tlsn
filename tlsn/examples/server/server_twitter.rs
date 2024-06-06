@@ -24,7 +24,10 @@ use url::Url;
 use serde_urlencoded;
 
 const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "oauth2.googleapis.com";
+const SERVER_DOMAIN: &str = "api.twitter.com";
+
+// to test only access this url and autorize the access to our app (Client ID)
+// https://twitter.com/i/oauth2/authorize?response_type=code&client_id=NmEzRDVnN2hxLWZadTFCZWlDZzk6MTpjaQ&redirect_uri=http://127.0.0.1:8000&scope=tweet.read%20users.read%20follows.read%20offline.access&state=state&code_challenge=challenge&code_challenge_method=plain
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -99,7 +102,7 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
 }
 
 async fn service(access_code: String) {
-    let uri = "https://oauth2.googleapis.com/token";
+    let uri = "https://api.twitter.com/2/oauth2/token";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
@@ -181,33 +184,22 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let us see the decrypted data until after the connection is closed.
     ctrl.defer_decryption().await.unwrap();
 
-    let url = "https://oauth2.googleapis.com/token";
+    let url = "https://api.twitter.com/2/oauth2/token";
 
-    // let params = [
-    //     ("code", access_code.clone()),
-    //     ("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com".to_string()),
-    //     ("client_secret", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com".to_string()),
-    //     ("connection", "closed".to_string()),
-    //     ("redirect_uri", "http://localhost:8000".to_string()),
-    //     ("grant_type", "authorization_code".to_string()),
-    // ];
-    // let post_data = serde_urlencoded::to_string(&params).unwrap();
+    let body = format!(
+        "code={}&grant_type=authorization_code&client_id=NmEzRDVnN2hxLWZadTFCZWlDZzk6MTpjaQ&redirect_uri=http://127.0.0.1:8000&code_verifier=challenge",
+        access_code
+    );    
+
+    println!("body: {}", body);
 
     // MPC-TLS: Send Request and wait for Response.
     let request = Request::builder()
         .method("POST")
         .uri(url)
         .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-        // .header(CONTENT_LENGTH, post_data.len() as u64)
-        .header(CONTENT_LENGTH, 1600)
-        .header("connection", "closed")
-        .header("code", access_code)
-        .header("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
-        .header("client_secret", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
-        .header("redirect_uri", "http://localhost:8000")
-        .header("grant_type", "authorization_code")
-        .body(Empty::<Bytes>::new())
-        // .body(Full::new(Bytes::from(post_data)))
+        // .body(Empty::<Bytes>::new())
+        .body(Full::new(Bytes::from(body)))
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();
 

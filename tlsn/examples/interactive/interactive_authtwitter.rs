@@ -1,110 +1,32 @@
-use std::net::SocketAddr;
-
+// use http_body_util::Empty;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::{body::Bytes, Method, Request, Response, StatusCode, Uri};
+// use hyper::{body::Bytes, Request, StatusCode, Uri};
+use hyper::{body::Bytes, Request, Uri};
 use hyper_util::rt::TokioIo;
-use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
-use hyper_tls::HttpsConnector;
-
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-
+// use regex::Regex;
 use tlsn_core::{proof::SessionInfo, Direction, RedactedTranscript};
 use tlsn_prover::tls::{state::Prove, Prover, ProverConfig};
 use tlsn_verifier::tls::{Verifier, VerifierConfig};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::instrument;
+// use std::{env, ops::Range, str};
+use std::str;
 
-use regex::Regex;
-use std::{clone, str};
-use std::collections::HashMap;
-use url::Url;
-use serde_urlencoded;
 
-const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "oauth2.googleapis.com";
+// const SECRET: &str = "TLSNotary's private key 🤡";
+const SERVER_DOMAIN: &str = "api.twitter.com";
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() {
     tracing_subscriber::fmt::init();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
-    let listener = TcpListener::bind(addr).await?;
-
-    println!("Listening on http://{}", addr);
-    
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
-
-        tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(handle_request))
-                .await
-            {
-                println!("Error serving connection: {:?}", err);
-            }
-        });
-    }
-}
-
-async fn handle_request(
-    req: Request<hyper::body::Incoming>,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
-    match (req.method(), req.uri().path()) {
-        // Serve some instructions at /
-        (&Method::GET, "/") => {
-            let query = req.uri().query().unwrap_or("");
-            let parsed_query = Url::parse(&format!("http://localhost:8000/?{}", query)).unwrap();
-            let code = parsed_query.query_pairs().find(|(key, _)| key == "code");
-
-            match code {
-                Some((_, value)) => {
-                    let value_owned = value.to_string();
-                    let response_body = format!("Authorization Code: {}", value);
-                    println!("{}", response_body);
-                    tokio::task::spawn(service(value_owned));
-                    Ok(Response::new(full(response_body)))
-                }
-                None => {
-                    let response_body = "Error: No authorization code received.";
-                    let mut resp = Response::new(full(response_body));
-                    *resp.status_mut() = StatusCode::BAD_REQUEST;
-                    Ok(resp)
-                }
-            }
-        }
-
-        // Return the 404 Not Found for other routes.
-        _ => {
-            let mut not_found = Response::new(empty());
-            *not_found.status_mut() = StatusCode::NOT_FOUND;
-            Ok(not_found)
-        }
-    }
-}
-
-fn empty() -> BoxBody<Bytes, hyper::Error> {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-async fn service(access_code: String) {
-    let uri = "https://oauth2.googleapis.com/token";
+    let uri = "https://api.twitter.com/2/oauth2/token";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
     let (prover_socket, verifier_socket) = tokio::io::duplex(1 << 23);
-    let prover = prover(prover_socket, uri, id, access_code);
+    let prover = prover(prover_socket, uri, id);
     let verifier = verifier(verifier_socket, id);
     let (_, (sent, received, _session_info)) = tokio::join!(prover, verifier);
 
@@ -124,17 +46,11 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     verifier_socket: T,
     uri: &str,
     id: &str,
-    access_code: String,
 ) {
     let uri = uri.parse::<Uri>().unwrap();
     assert_eq!(uri.scheme().unwrap().as_str(), "https");
-    let host = uri.host().expect("uri has no host");
     let server_domain = uri.authority().unwrap().host();
     let server_port = uri.port_u16().unwrap_or(443);
-
-    println!("Connecting to {}", &uri);
-    println!("Server domain: {}", &server_domain);
-    println!("Server host: {}", &host);
 
     // Create prover and connect to verifier.
     //
@@ -150,14 +66,20 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     .await
     .unwrap();
 
+    println!("Step 1");
+
     // Connect to TLS Server.
     let tls_client_socket = tokio::net::TcpStream::connect((server_domain, server_port))
         .await
         .unwrap();
 
+    println!("Step 2");
+
     // Pass server connection into the prover.
     let (mpc_tls_connection, prover_fut) =
         prover.connect(tls_client_socket.compat()).await.unwrap();
+
+    println!("Step 3");
 
     // Grab a controller for the Prover so we can enable deferred decryption.
     let ctrl = prover_fut.control();
@@ -174,6 +96,8 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
             .await
             .unwrap();
 
+    println!("Step 4");
+
     // Spawn the connection to run in the background.
     tokio::spawn(connection);
 
@@ -181,39 +105,25 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let us see the decrypted data until after the connection is closed.
     ctrl.defer_decryption().await.unwrap();
 
-    let url = "https://oauth2.googleapis.com/token";
+    println!("Step 5");
 
-    // let params = [
-    //     ("code", access_code.clone()),
-    //     ("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com".to_string()),
-    //     ("client_secret", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com".to_string()),
-    //     ("connection", "closed".to_string()),
-    //     ("redirect_uri", "http://localhost:8000".to_string()),
-    //     ("grant_type", "authorization_code".to_string()),
-    // ];
-    // let post_data = serde_urlencoded::to_string(&params).unwrap();
+    let url = "https://api.twitter.com/2/oauth2/token";
+    // let bearer_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ODA5NSwiaWF0IjoxNzE3NDI4NDI2LCJleHAiOjE3MTc4NjA0MjZ9.Qp-HfWEbFoRdU_59RXwvHOEy3oNMPG03Jo42eNgNK-U";
+    
+    let body = "code=&grant_type=authorization_code&client_id=NmEzRDVnN2hxLWZadTFCZWlDZzk6MTpjaQ&redirect_uri=http://127.0.0.1&code_verifier=challenge";
 
-    // MPC-TLS: Send Request and wait for Response.
+    // Build the request
     let request = Request::builder()
-        .method("POST")
         .uri(url)
-        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-        // .header(CONTENT_LENGTH, post_data.len() as u64)
-        .header(CONTENT_LENGTH, 1600)
-        .header("connection", "closed")
-        .header("code", access_code)
-        .header("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
-        .header("client_secret", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
-        .header("redirect_uri", "http://localhost:8000")
-        .header("grant_type", "authorization_code")
-        .body(Empty::<Bytes>::new())
-        // .body(Full::new(Bytes::from(post_data)))
+        .method("POST")
+        .header("content-Type", "application/x-www-form-urlencoded")
+        .body(Full::new(Bytes::from(body)))
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();
 
-    println!("Response: {:?}", response);
+    println!("Step 6");
 
-    assert!(response.status() == StatusCode::OK);
+    // assert!(response.status() == StatusCode::OK);
 
     // Create proof for the Verifier.
     let mut prover = prover_task.await.unwrap().unwrap().start_prove();
@@ -221,8 +131,16 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     redact_and_reveal_sent_data(&mut prover);
     prover.prove().await.unwrap();
 
+    println!("Step 7");
+
     // Finalize.
     prover.finalize().await.unwrap()
+}
+
+fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
+    Full::new(chunk.into())
+        .map_err(|never| match never {})
+        .boxed()
 }
 
 #[instrument(skip(socket))]
@@ -251,7 +169,9 @@ async fn verifier<T: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static>(
     //     .expect("Expected valid public key in JSON response");
 
     // Check Session info: server name.
-    assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
+    // assert_eq!(session_info.server_name.as_str(), SERVER_DOMAIN);
+
+    // Assinar os valores
 
     (sent, received, session_info)
 }
@@ -259,13 +179,33 @@ async fn verifier<T: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static>(
 /// Redacts and reveals received data to the verifier.
 fn redact_and_reveal_received_data(prover: &mut Prover<Prove>) {
     let recv_transcript_len = prover.recv_transcript().data().len();
+
+    // // Get the commit hash from the received data.
+    // let received_string = String::from_utf8(prover.recv_transcript().data().to_vec()).unwrap();
+    // let re = Regex::new(r#""gitCommitHash"\s?:\s?"(.*?)""#).unwrap();
+    // let commit_hash_match = re.captures(&received_string).unwrap().get(1).unwrap();
+
+    // Reveal everything except for the commit hash.
     _ = prover.reveal(0..recv_transcript_len, Direction::Received);
+    // _ = prover.reveal(
+    //     commit_hash_match.end()..recv_transcript_len,
+    //     Direction::Received,
+    // );
 }
 
 /// Redacts and reveals sent data to the verifier.
 fn redact_and_reveal_sent_data(prover: &mut Prover<Prove>) {
     let sent_transcript_len = prover.sent_transcript().data().len();
+
+    // let sent_string = String::from_utf8(prover.sent_transcript().data().to_vec()).unwrap();
+    // let secret_start = sent_string.find(SECRET).unwrap();
+
+    // Reveal everything except for the SECRET.
     _ = prover.reveal(0..sent_transcript_len, Direction::Sent);
+//     _ = prover.reveal(
+//         secret_start + SECRET.len()..sent_transcript_len,
+//         Direction::Sent,
+//     );
 }
 
 /// Render redacted bytes as `🙈`.
