@@ -114,6 +114,10 @@ name = "interactive_google"
 path = "interactive/interactive_google.rs"
 
 [[example]]
+name = "interactive_gmail"
+path = "interactive/interactive_gmail.rs"
+
+[[example]]
 name = "interactive_starkling"
 path = "interactive/interactive_starkling.rs"
 

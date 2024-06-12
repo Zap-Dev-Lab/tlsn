@@ -23,8 +23,25 @@ use std::collections::HashMap;
 use url::Url;
 use serde_urlencoded;
 
+use reqwest::Client;
+use serde::Deserialize;
+
 const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "oauth2.googleapis.com";
+const SERVER_DOMAIN: &str = "people.googleapis.com";
+
+// to test:
+// https://accounts.google.com/o/oauth2/v2/auth?client_id=16395376621-7pbfosl2qi9gnb0u7282vucp451k8m0h.apps.googleusercontent.com&response_type=code&redirect_uri=http://localhost:8000&scope=https://www.googleapis.com/auth/userinfo.email%20profile&access_type=offline
+
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: String,
+    expires_in: u64,
+    refresh_token: String,
+    scope: String,
+    token_type: String,
+    id_token: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -62,10 +79,26 @@ async fn handle_request(
 
             match code {
                 Some((_, value)) => {
-                    let value_owned = value.to_string();
+                    let auth_code = value.to_string();
+
+                    println!("");
                     let response_body = format!("Authorization Code: {}", value);
                     println!("{}", response_body);
-                    tokio::task::spawn(service(value_owned));
+
+                    let auth_str: &str = auth_code.as_str();
+                    let access_token_result = get_access_token(auth_str).await;
+
+                    if let Ok(access_token) = access_token_result {
+                        // Convert String to &str
+                        let access_token_str: &str = access_token.as_str();
+                        println!("");
+                        println!("Access Token: {}", access_token_str);
+                        println!("");
+                        tokio::task::spawn(service(access_token));
+                    } else {
+                        eprintln!("Failed to get access token: {:?}", access_token_result);
+                    }
+
                     Ok(Response::new(full(response_body)))
                 }
                 None => {
@@ -98,13 +131,34 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
         .boxed()
 }
 
-async fn service(access_code: String) {
-    let uri = "https://oauth2.googleapis.com/token";
+async fn get_access_token(auth_code: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = Client::new();
+
+    let mut params = HashMap::new();
+    params.insert("grant_type", "authorization_code");
+    params.insert("code", auth_code);
+    params.insert("client_id", "16395376621-7pbfosl2qi9gnb0u7282vucp451k8m0h.apps.googleusercontent.com");
+    params.insert("client_secret", "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");
+    params.insert("redirect_uri", "http://localhost:8000");
+
+    let response = client.post("https://oauth2.googleapis.com/token")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&params)
+        .send()
+        .await?
+        .json::<TokenResponse>()
+        .await?;
+
+    Ok(response.access_token)
+}
+
+async fn service(bearer_token: String) {
+    let uri = "https://people.googleapis.com/v1/people/me?personFields=emailAddresses";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
     let (prover_socket, verifier_socket) = tokio::io::duplex(1 << 23);
-    let prover = prover(prover_socket, uri, id, access_code);
+    let prover = prover(prover_socket, uri, id, bearer_token);
     let verifier = verifier(verifier_socket, id);
     let (_, (sent, received, _session_info)) = tokio::join!(prover, verifier);
 
@@ -124,7 +178,7 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     verifier_socket: T,
     uri: &str,
     id: &str,
-    access_code: String,
+    bearer_token: String,
 ) {
     let uri = uri.parse::<Uri>().unwrap();
     assert_eq!(uri.scheme().unwrap().as_str(), "https");
@@ -132,9 +186,11 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     let server_domain = uri.authority().unwrap().host();
     let server_port = uri.port_u16().unwrap_or(443);
 
+    println!("");
     println!("Connecting to {}", &uri);
     println!("Server domain: {}", &server_domain);
     println!("Server host: {}", &host);
+    println!("");
 
     // Create prover and connect to verifier.
     //
@@ -181,39 +237,24 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let us see the decrypted data until after the connection is closed.
     ctrl.defer_decryption().await.unwrap();
 
-    let url = "https://oauth2.googleapis.com/token";
-
-    // let params = [
-    //     ("code", access_code.clone()),
-    //     ("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com".to_string()),
-    //     ("client_secret", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com".to_string()),
-    //     ("connection", "closed".to_string()),
-    //     ("redirect_uri", "http://localhost:8000".to_string()),
-    //     ("grant_type", "authorization_code".to_string()),
-    // ];
-    // let post_data = serde_urlencoded::to_string(&params).unwrap();
+    // to test:
+    // https://accounts.google.com/o/oauth2/v2/auth?client_id=16395376621-7pbfosl2qi9gnb0u7282vucp451k8m0h.apps.googleusercontent.com&response_type=code&redirect_uri=http://localhost:8000&scope=https://www.googleapis.com/auth/userinfo.email%20profile&access_type=offline
 
     // MPC-TLS: Send Request and wait for Response.
     let request = Request::builder()
-        .method("POST")
-        .uri(url)
-        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-        // .header(CONTENT_LENGTH, post_data.len() as u64)
-        .header(CONTENT_LENGTH, 1600)
-        .header("connection", "closed")
-        .header("code", access_code)
-        .header("client_id", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
-        .header("client_secret", "17528040277-99u31cdsqvoct6bbmfuvarb18ocfuhg2.apps.googleusercontent.com")
-        .header("redirect_uri", "http://localhost:8000")
-        .header("grant_type", "authorization_code")
+        .uri(uri.to_string())
+        .method("GET")
+        .header("host", SERVER_DOMAIN)
+        .header("accept", "application/json")
+        .header("authorization", "Bearer ".to_string() + &bearer_token)
+        .header("Connection", "close")
         .body(Empty::<Bytes>::new())
-        // .body(Full::new(Bytes::from(post_data)))
         .unwrap();
     let response = request_sender.send_request(request).await.unwrap();
 
-    println!("Response: {:?}", response);
+    // println!("Response: {:?}", response);
 
-    assert!(response.status() == StatusCode::OK);
+    // assert!(response.status() == StatusCode::OK);
 
     // Create proof for the Verifier.
     let mut prover = prover_task.await.unwrap().unwrap().start_prove();

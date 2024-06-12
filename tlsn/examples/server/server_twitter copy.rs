@@ -3,8 +3,10 @@ use std::net::SocketAddr;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{body::Bytes, Method, Request, Response, StatusCode, Uri};
 use hyper_util::rt::TokioIo;
-use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
+use hyper::header::{self, CONTENT_LENGTH, CONTENT_TYPE, HeaderValue};
 use hyper_tls::HttpsConnector;
+use hyper::body;
+use hyper::body::Buf;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -22,6 +24,9 @@ use std::{clone, str};
 use std::collections::HashMap;
 use url::Url;
 use serde_urlencoded;
+
+use serde_json::json;
+use serde::{Deserialize, Serialize};
 
 const SECRET: &str = "TLSNotary's private key 🤡";
 const SERVER_DOMAIN: &str = "api.twitter.com";
@@ -53,31 +58,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct AuthRequest {
+    code: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AccessTokenResponse {
+    access_token: String,
+    token_type: String,
+    expires_in: u64,
+}
+
 async fn handle_request(
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     match (req.method(), req.uri().path()) {
-        // Serve some instructions at /
-        (&Method::GET, "/") => {
-            let query = req.uri().query().unwrap_or("");
-            let parsed_query = Url::parse(&format!("http://localhost:8000/?{}", query)).unwrap();
-            let code = parsed_query.query_pairs().find(|(key, _)| key == "code");
+        (&Method::OPTIONS, _) => {
+            // Handle preflight CORS request
+            let resp = Response::builder()
+                .status(200)
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .header(header::ACCESS_CONTROL_ALLOW_METHODS, "POST, GET, OPTIONS")
+                .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type")
+                .body(empty())
+                .unwrap();
+            Ok(resp)
+        }
 
-            match code {
-                Some((_, value)) => {
-                    let value_owned = value.to_string();
-                    let response_body = format!("Authorization Code: {}", value);
-                    println!("{}", response_body);
-                    tokio::task::spawn(service(value_owned));
-                    Ok(Response::new(full(response_body)))
-                }
-                None => {
-                    let response_body = "Error: No authorization code received.";
-                    let mut resp = Response::new(full(response_body));
-                    *resp.status_mut() = StatusCode::BAD_REQUEST;
-                    Ok(resp)
-                }
-            }
+        // (&Method::GET, "/") => {
+        //     let query = req.uri().query().unwrap_or("");
+        //     let parsed_query = Url::parse(&format!("http://localhost:8000/?{}", query)).unwrap();
+        //     let code = parsed_query.query_pairs().find(|(key, _)| key == "code");
+
+        //     match code {
+        //         Some((_, value)) => {
+        //             let value_owned = value.to_string();
+        //             let response_body = format!("Authorization Code: {}", value);
+        //             println!("{}", response_body);
+        //             tokio::task::spawn(service(value_owned));
+        //             Ok(Response::new(full(response_body)))
+        //         }
+        //         None => {
+        //             let response_body = "Error: No authorization code received.";
+        //             let mut resp = Response::new(full(response_body));
+        //             *resp.status_mut() = StatusCode::BAD_REQUEST;
+        //             Ok(resp)
+        //         }
+        //     }
+        // }
+
+        (&Method::POST, "/twitter-callback") => {
+            println!("POST /twitter-callback");
+            let whole_body = req.collect().await?.aggregate();
+            let auth_request: AuthRequest = serde_json::from_reader(whole_body.reader()).unwrap();
+
+            println!("auth_request.code: {}", auth_request.code);
+
+            tokio::task::spawn(service(auth_request.code));
+
+            Ok(Response::new(full("done")))
         }
 
         // Return the 404 Not Found for other routes.
@@ -187,7 +227,7 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     let url = "https://api.twitter.com/2/oauth2/token";
 
     let body = format!(
-        "code={}&grant_type=authorization_code&client_id=NmEzRDVnN2hxLWZadTFCZWlDZzk6MTpjaQ&redirect_uri=http://127.0.0.1:8000&code_verifier=challenge",
+        "code={}&grant_type=authorization_code&client_id=NmEzRDVnN2hxLWZadTFCZWlDZzk6MTpjaQ&redirect_uri=http://localhost:5173/callback&code_verifier=challenge",
         access_code
     );    
 

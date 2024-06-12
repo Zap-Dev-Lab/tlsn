@@ -9,18 +9,20 @@ use tlsn_verifier::tls::{Verifier, VerifierConfig};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::instrument;
+use url::Url;
 // use std::{env, ops::Range, str};
 use std::str;
+use hyper::Version;
 
 
 // const SECRET: &str = "TLSNotary's private key 🤡";
-const SERVER_DOMAIN: &str = "backend.nodeguardians.io";
+const SERVER_DOMAIN: &str = "people.googleapis.com";
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let uri = "http://backend.nodeguardians.io/api/users/statistics?key=general";
+    let uri = "https://people.googleapis.com/v1/people/me?personFields=emailAddresses";
     let id = "interactive verifier demo";
 
     // Connect prover and verifier.
@@ -101,35 +103,21 @@ async fn prover<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     // let auth_token = env::var("AUTHORIZATION").unwrap();
     // let user_agent = env::var("USER_AGENT").unwrap();
 
-    // // MPC-TLS: Send Request and wait for Response.
-    // let request = Request::builder()
-    //     .uri(format!(
-    //         "https://backend.nodeguardians.io/api/users/statistics?key=general"
-    //     )) 
-    //     .header("Host", SERVER_DOMAIN)
-    //     .header("Accept", "application/json")
-    //     .header("Accept-Language", "en-US,en;q=0.9")
-    //     .header("Accept-Encoding", "identity")
-    //     .header("Authorization", format!("Bearer {auth_token}"))
-    //     .header("Origin", "https://nodeguardians.io" )
-    //     .header("Referer", "https://nodeguardians.io/" )
-    //     .body(Empty::<Bytes>::new())
-    //     .unwrap();
 
-    let url = "http://backend.nodeguardians.io/api/users/statistics?key=general";
-    // let bearer_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ODA5NSwiaWF0IjoxNzE3NDI4NDI2LCJleHAiOjE3MTc4NjA0MjZ9.Qp-HfWEbFoRdU_59RXwvHOEy3oNMPG03Jo42eNgNK-U";
-    
+
+
     // Build the request
     let request = Request::builder()
-        .uri(url)
+        .uri(uri.to_string()) // Use the constructed URL
         .method("GET")
-        .header("Accept", "application/json")
-        .header("Accept-Encoding", "gzip, deflate, br, zstd")
-        .header("Accept-Language", "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7")
-        .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ODA5NSwiaWF0IjoxNzE3NDI4NDI2LCJleHAiOjE3MTc4NjA0MjZ9.Qp-HfWEbFoRdU_59RXwvHOEy3oNMPG03Jo42eNgNK-U")
-        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15")
+        .header("host", SERVER_DOMAIN)
+        .header("accept", "application/json")
+        .header("authorization", "Bearer ya29.a0AXooCgt--ZU-ukNAi-6-1PxGrI9wwqT3Igcp09Y4bpDuPU2PXjwGdcm0ENzAoDlHOSVpybmtQh18UODiaiPQjkcSmlwEExxVE0_Z1V1GBegqyNEFQ1dCmtKNtBo7-3CqbZqAn6SDDbqUXLh3-jQ5p7oGtfSOez4boUWTaCgYKARoSARASFQHGX2MiiDCxKZWnlYdJlpmDCfobuQ0171")
+        .header("Connection", "close")
         .body(Empty::<Bytes>::new())
         .unwrap();
+    
+    println!("{:?}", request);
     let response = request_sender.send_request(request).await.unwrap();
 
     // assert!(response.status() == StatusCode::OK);
