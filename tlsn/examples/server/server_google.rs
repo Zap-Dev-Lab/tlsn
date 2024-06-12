@@ -137,8 +137,8 @@ async fn get_access_token(auth_code: &str) -> Result<String, Box<dyn std::error:
     let mut params = HashMap::new();
     params.insert("grant_type", "authorization_code");
     params.insert("code", auth_code);
-    params.insert("client_id", "16395376621-7pbfosl2qi9gnb0u7282vucp451k8m0h.apps.googleusercontent.com");
-    params.insert("client_secret", "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");
+    params.insert("client_id", env::var("GOOGLE_CLIENT_ID").unwrap());
+    params.insert("client_secret", env::var("GOOGLE_CLIENT_SECRET").unwrap());
     params.insert("redirect_uri", "http://localhost:8000");
 
     let response = client.post("https://oauth2.googleapis.com/token")
